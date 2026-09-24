@@ -1,1128 +1,839 @@
---[[
-    STEAL AN EGG -- FULL FITUR v16
-    KEY: 1234
-    - GUI offset (bisa digeser, ukuran wajar)
-    - Tab switching bener
-    - Anti fire paling atas
-    - Semua fitur
-]]
+-- file: Joy_Hub_v17.lua
+-- purpose: Steal an Egg — bypass posisi, fly-integrated steal, anti-detect
+-- platform: Delta Mobile
+-- key: joy
 
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
-local HttpService = game:GetService("HttpService")
-local StarterGui = game:GetService("StarterGui")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local TeleportService = game:GetService("TeleportService")
-local VirtualUser = game:GetService("VirtualUser")
-local Workspace = game:GetService("Workspace")
-local LP = Players.LocalPlayer
+local P=game:GetService("Players")
+local RS=game:GetService("ReplicatedStorage")
+local RF=game:GetService("ReplicatedFirst")
+local WS=game:GetService("Workspace")
+local UIS=game:GetService("UserInputService")
+local RSvc=game:GetService("RunService")
+local TS=game:GetService("TweenService")
+local HS=game:GetService("HttpService")
+local SG=game:GetService("StarterGui")
+local VU=game:GetService("VirtualUser")
+local TPS=game:GetService("TeleportService")
+local LP=P.LocalPlayer
 
--- ANTI PALING ATAS
-pcall(function()
-    local mt = getrawmetatable(game); local old = mt.__namecall
-    setreadonly(mt, false)
-    mt.__namecall = newcclosure(function(self, ...)
-        local m = getnamecallmethod()
-        if m == "Kick" or m == "kick" or m == "KickSelf" then return end
-        return old(self, ...)
-    end)
-    setreadonly(mt, true)
-end)
-pcall(function()
-    if getgc then
-        for _, obj in ipairs(getgc(true)) do
-            if type(obj) == "table" then
-                pcall(function()
-                    if rawget(obj,"Kick") then rawset(obj,"Kick",function() end) end
-                    if rawget(obj,"Ban") then rawset(obj,"Ban",function() end) end
-                end)
+-- ============================================================
+-- 1. STEALTH LAYER
+-- ============================================================
+local function stealthInit()
+    local ok,mt=pcall(getrawmetatable,game)
+    if not ok or not mt then return end
+    local oldNC=mt.__namecall
+    local oldIDX=mt.__index
+    local blockSet={Kick=true,kick=true,KickSelf=true,Ban=true,BanSelf=true}
+    setreadonly(mt,false)
+    mt.__namecall=newcclosure(function(self,...)
+        local m=getnamecallmethod()
+        if blockSet[m] then
+            if checkcaller and checkcaller() then
+                return oldNC(self,...)
             end
+            local cs=getcallingscript and getcallingscript()
+            if cs and cs~=LP.PlayerScripts and cs~=LP.PlayerGui then
+                return
+            end
+            return
         end
-    end
-end)
+        return oldNC(self,...)
+    end)
+    mt.__index=newcclosure(function(self,k)
+        if k=="Kick" or k=="kick" or k=="Ban" then
+            if checkcaller and checkcaller() then
+                return oldIDX(self,k)
+            end
+            return function() end
+        end
+        return oldIDX(self,k)
+    end)
+    setreadonly(mt,true)
+end
+pcall(stealthInit)
+
 pcall(function()
     LP.Idled:Connect(function()
-        pcall(function() VirtualUser:CaptureController(); VirtualUser:ClickButton2(Vector2.new()) end)
+        pcall(function() VU:CaptureController(); VU:ClickButton2(Vector2.new()) end)
     end)
 end)
 
-if getgenv and getgenv().SAE_GUI then pcall(function() getgenv().SAE_GUI:Destroy() end) end
-pcall(function()
-    local old = LP:WaitForChild("PlayerGui"):FindFirstChild("SAE_GUI")
-    if old then old:Destroy() end
-end)
+-- ============================================================
+-- 2. CLEANUP + THEME
+-- ============================================================
+if getgenv and getgenv().JOY_GUI then pcall(function() getgenv().JOY_GUI:Destroy() end) end
+local oldG=LP:FindFirstChild("PlayerGui") and LP.PlayerGui:FindFirstChild("JOY_GUI")
+if oldG then oldG:Destroy() end
 
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "SAE_GUI"
-ScreenGui.ResetOnSpawn = false
-ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-ScreenGui.DisplayOrder = 2147483647
-ScreenGui.IgnoreGuiInset = true
-ScreenGui.Parent = LP:WaitForChild("PlayerGui")
-getgenv().SAE_GUI = ScreenGui
-
-local Th = {
-    bg=Color3.fromRGB(20,20,26), panel=Color3.fromRGB(28,28,36),
-    accent=Color3.fromRGB(120,90,255), text=Color3.fromRGB(235,235,245),
-    sub=Color3.fromRGB(150,150,165), success=Color3.fromRGB(80,220,120),
-    danger=Color3.fromRGB(255,70,90),
+local T={
+    bg=Color3.fromRGB(15,15,20),panel=Color3.fromRGB(24,24,32),
+    accent=Color3.fromRGB(138,92,255),accent2=Color3.fromRGB(80,200,255),
+    text=Color3.fromRGB(240,240,250),sub=Color3.fromRGB(140,140,160),
+    ok=Color3.fromRGB(80,220,140),bad=Color3.fromRGB(255,80,100),
+    warn=Color3.fromRGB(255,180,60),
 }
 
-local function new(c, p, parent)
-    local o = Instance.new(c)
+local function mk(c,p,par)
+    local o=Instance.new(c)
     for k,v in pairs(p) do o[k]=v end
-    if parent then o.Parent = parent end
+    if par then o.Parent=par end
     return o
 end
 
--- KEY SCREEN
-local KeyFrame = new("Frame", {
-    Name="KeyFrame", Size=UDim2.fromOffset(300, 240),
-    Position=UDim2.new(0.5, -150, 0.5, -120),
-    BackgroundColor3=Th.bg, BorderSizePixel=0, ZIndex=1000,
-}, ScreenGui)
-new("UICorner", {CornerRadius=UDim.new(0,14)}, KeyFrame)
-new("UIStroke", {Color=Th.accent, Thickness=2}, KeyFrame)
-new("Frame", {Size=UDim2.new(1,0,0,6), BackgroundColor3=Th.accent, BorderSizePixel=0, ZIndex=1001}, KeyFrame)
-new("TextLabel", {Size=UDim2.new(1,0,0,26), Position=UDim2.new(0,0,0,18), BackgroundTransparency=1, Text="STEAL AN EGG", TextColor3=Th.text, Font=Enum.Font.GothamBold, TextSize=18, ZIndex=1001}, KeyFrame)
-new("TextLabel", {Size=UDim2.new(1,0,0,14), Position=UDim2.new(0,0,0,44), BackgroundTransparency=1, Text="Key: 1234", TextColor3=Th.sub, Font=Enum.Font.Gotham, TextSize=11, ZIndex=1001}, KeyFrame)
+local GUI=mk("ScreenGui",{Name="JOY_GUI",ResetOnSpawn=false,DisplayOrder=2147483647,IgnoreGuiInset=true,ZIndexBehavior=Enum.ZIndexBehavior.Sibling},LP:WaitForChild("PlayerGui"))
+getgenv().JOY_GUI=GUI
 
-local KeyBox = new("Frame", {Size=UDim2.new(1,-40,0,40), Position=UDim2.new(0,20,0,72), BackgroundColor3=Th.panel, BorderSizePixel=0, ZIndex=1001, Active=false}, KeyFrame)
-new("UICorner", {CornerRadius=UDim.new(0,8)}, KeyBox)
-new("UIStroke", {Color=Th.accent, Thickness=1, Transparency=0.5}, KeyBox)
-local KeyInput = new("TextBox", {Size=UDim2.new(1,-16,1,0), Position=UDim2.new(0,8,0,0), BackgroundTransparency=1, Text="", PlaceholderText="Ketik key...", PlaceholderColor3=Th.sub, TextColor3=Th.text, Font=Enum.Font.Gotham, TextSize=14, TextXAlignment=Enum.TextXAlignment.Left, ClearTextOnFocus=false, ZIndex=1010}, KeyBox)
-local SubmitBtn = new("TextButton", {Size=UDim2.new(1,-40,0,42), Position=UDim2.new(0,20,0,124), BackgroundColor3=Th.accent, Text="VERIFIKASI", TextColor3=Color3.fromRGB(255,255,255), Font=Enum.Font.GothamBold, TextSize=14, AutoButtonColor=true, BorderSizePixel=0, ZIndex=1010, Active=true}, KeyFrame)
-new("UICorner", {CornerRadius=UDim.new(0,8)}, SubmitBtn)
-local StatusLabel = new("TextLabel", {Size=UDim2.new(1,0,0,16), Position=UDim2.new(0,0,0,176), BackgroundTransparency=1, Text="", TextColor3=Th.danger, Font=Enum.Font.Gotham, TextSize=11, ZIndex=1001}, KeyFrame)
+-- ============================================================
+-- 3. KEY SCREEN
+-- ============================================================
+local KeyF=mk("Frame",{Size=UDim2.fromOffset(300,230),Position=UDim2.new(0.5,-150,0.5,-115),BackgroundColor3=T.bg,BorderSizePixel=0,ZIndex=1000},GUI)
+mk("UICorner",{CornerRadius=UDim.new(0,16)},KeyF)
+mk("UIStroke",{Color=T.accent,Thickness=2},KeyF)
 
--- MAIN GUI
-local Main = new("Frame", {
-    Name="Main", Size=UDim2.fromOffset(360, 300),
-    Position=UDim2.new(0.5, -180, 0.5, -150),
-    BackgroundColor3=Th.bg, BorderSizePixel=0,
-    ClipsDescendants=true, Visible=false,
-}, ScreenGui)
-new("UICorner", {CornerRadius=UDim.new(0,12)}, Main)
-new("UIStroke", {Color=Th.accent, Thickness=2, Transparency=0.2}, Main)
+mk("ImageLabel",{Size=UDim2.fromOffset(64,64),Position=UDim2.new(0.5,-32,0,16),BackgroundTransparency=1,Image="rbxassetid://6031075931",ZIndex=1001},KeyF)
+mk("TextLabel",{Size=UDim2.new(1,0,0,24),Position=UDim2.new(0,0,0,88),BackgroundTransparency=1,Text="JOY HUB v17",TextColor3=T.text,Font=Enum.Font.GothamBold,TextSize=20,ZIndex=1001},KeyF)
+mk("TextLabel",{Size=UDim2.new(1,0,0,16),Position=UDim2.new(0,0,0,114),BackgroundTransparency=1,Text="Steal an Egg | Delta Mobile",TextColor3=T.sub,Font=Enum.Font.Gotham,TextSize=11,ZIndex=1001},KeyF)
 
--- DRAG
-local dragging=false; local dragStart, startPos
-local function startDrag(i)
-    if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
-        dragging=true; dragStart=i.Position; startPos=Main.Position
+local KB=mk("Frame",{Size=UDim2.new(1,-40,0,40),Position=UDim2.new(0,20,0,142),BackgroundColor3=T.panel,BorderSizePixel=0,ZIndex=1001},KeyF)
+mk("UICorner",{CornerRadius=UDim.new(0,10)},KB)
+mk("UIStroke",{Color=T.accent,Thickness=1,Transparency=0.5},KB)
+local KI=mk("TextBox",{Size=UDim2.new(1,-20,1,0),Position=UDim2.new(0,10,0,0),BackgroundTransparency=1,Text="",PlaceholderText="Key...",PlaceholderColor3=T.sub,TextColor3=T.text,Font=Enum.Font.Gotham,TextSize=16,TextXAlignment=Enum.TextXAlignment.Left,ClearTextOnFocus=false,ZIndex=1010},KB)
+
+local SB=mk("TextButton",{Size=UDim2.new(1,-40,0,36),Position=UDim2.new(0,20,0,188),BackgroundColor3=T.accent,Text="VERIFY",TextColor3=Color3.new(1,1,1),Font=Enum.Font.GothamBold,TextSize=14,AutoButtonColor=true,BorderSizePixel=0,ZIndex=1010},KeyF)
+mk("UICorner",{CornerRadius=UDim.new(0,10)},SB)
+
+-- ============================================================
+-- 4. MAIN GUI (resizable)
+-- ============================================================
+local Main=mk("Frame",{Name="Main",Size=UDim2.fromOffset(360,400),Position=UDim2.new(0.5,-180,0.5,-200),BackgroundColor3=T.bg,BorderSizePixel=0,ClipsDescendants=true,Visible=false},GUI)
+mk("UICorner",{CornerRadius=UDim.new(0,14)},Main)
+mk("UIStroke",{Color=T.accent,Thickness=2,Transparency=0.2},Main)
+
+local H=mk("Frame",{Size=UDim2.new(1,0,0,48),BackgroundColor3=T.panel,BorderSizePixel=0},Main)
+mk("ImageLabel",{Size=UDim2.fromOffset(32,32),Position=UDim2.new(0,12,0,8),BackgroundTransparency=1,Image="rbxassetid://6031075931"},H)
+mk("TextLabel",{Size=UDim2.new(1,-140,0,20),Position=UDim2.new(0,52,0,8),BackgroundTransparency=1,Text="JOY HUB v17",TextColor3=T.text,Font=Enum.Font.GothamBold,TextSize=14,TextXAlignment=Enum.TextXAlignment.Left},H)
+mk("TextLabel",{Size=UDim2.new(1,-140,0,14),Position=UDim2.new(0,52,0,26),BackgroundTransparency=1,Text="Steal an Egg | Mobile",TextColor3=T.sub,Font=Enum.Font.Gotham,TextSize=10,TextXAlignment=Enum.TextXAlignment.Left},H)
+
+local CloseB=mk("TextButton",{Size=UDim2.fromOffset(32,32),Position=UDim2.new(1,-40,0,8),BackgroundColor3=T.bad,Text="X",TextColor3=Color3.new(1,1,1),Font=Enum.Font.GothamBold,TextSize=14,AutoButtonColor=false,BorderSizePixel=0,ZIndex=5},H)
+mk("UICorner",{CornerRadius=UDim.new(0,8)},CloseB)
+
+local ResizeH=mk("Frame",{Size=UDim2.fromOffset(20,20),Position=UDim2.new(1,-20,1,-20),BackgroundColor3=T.accent,BackgroundTransparency=0.3,ZIndex=6},Main)
+mk("UICorner",{CornerRadius=UDim.new(0,6)},ResizeH)
+
+local TabBar=mk("Frame",{Size=UDim2.new(1,0,0,36),Position=UDim2.new(0,0,0,48),BackgroundColor3=T.bg,BorderSizePixel=0},Main)
+mk("UIListLayout",{Padding=UDim.new(0,4),FillDirection=Enum.FillDirection.Horizontal,SortOrder=Enum.SortOrder.LayoutOrder,HorizontalAlignment=Enum.HorizontalAlignment.Center,VerticalAlignment=Enum.VerticalAlignment.Center},TabBar)
+
+local Content=mk("Frame",{Size=UDim2.new(1,0,1,-84),Position=UDim2.new(0,0,0,84),BackgroundColor3=T.bg,BorderSizePixel=0},Main)
+
+local tabNames={"Farm","Visual","Event","Misc","Safety","Cfg"}
+local tabs={}
+for i,n in ipairs(tabNames) do
+    local b=mk("TextButton",{Size=UDim2.fromOffset(52,26),BackgroundColor3=T.bg,Text=n,TextColor3=T.text,Font=Enum.Font.GothamBold,TextSize=10,AutoButtonColor=false,BorderSizePixel=0},TabBar)
+    mk("UICorner",{CornerRadius=UDim.new(0,6)},b)
+    local pg=mk("ScrollingFrame",{Size=UDim2.new(1,-8,1,-8),Position=UDim2.new(0,4,0,4),BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=4,ScrollBarImageColor3=T.accent,CanvasSize=UDim2.new(0,0,0,0),Visible=false},Content)
+    mk("UIListLayout",{Padding=UDim.new(0,4),SortOrder=Enum.SortOrder.LayoutOrder},pg)
+    tabs[string.lower(n)]={btn=b,page=pg}
+end
+
+local function showTab(k)
+    for a,t in pairs(tabs) do t.btn.BackgroundColor3=T.bg; t.page.Visible=false end
+    tabs[k].btn.BackgroundColor3=T.accent
+    tabs[k].page.Visible=true
+end
+
+local function bind(b,fn)
+    b.MouseButton1Click:Connect(fn)
+    pcall(function() b.TouchTap:Connect(fn) end)
+end
+
+for k,t in pairs(tabs) do bind(t.btn,function() showTab(k) end) end
+
+-- Drag
+local drag=false; local dS,dP
+H.InputBegan:Connect(function(i)
+    if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then
+        drag=true; dS=i.Position; dP=Main.Position
     end
-end
-local function updateDrag(i)
-    if dragging then
-        local d = i.Position - dragStart
-        Main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
+end)
+UIS.InputChanged:Connect(function(i)
+    if drag then
+        local d=i.Position-dS
+        Main.Position=UDim2.new(dP.X.Scale,dP.X.Offset+d.X,dP.Y.Scale,dP.Y.Offset+d.Y)
     end
-end
-local function stopDrag(i)
-    if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
-        dragging=false
-    end
-end
-
-local Header = new("Frame", {Size=UDim2.new(1,0,0,40), BackgroundColor3=Th.panel, BorderSizePixel=0}, Main)
-Header.InputBegan:Connect(startDrag)
-UserInputService.InputChanged:Connect(updateDrag)
-UserInputService.InputEnded:Connect(stopDrag)
-
-new("TextLabel", {Size=UDim2.new(1,-50,1,0), Position=UDim2.new(0,12,0,0), BackgroundTransparency=1, Text="STEAL AN EGGS", TextColor3=Th.text, Font=Enum.Font.GothamBold, TextSize=14, TextXAlignment=Enum.TextXAlignment.Left}, Header)
-
-local closeBtn = new("TextButton", {Size=UDim2.fromOffset(32,32), Position=UDim2.new(1,-40,0,4), BackgroundColor3=Th.danger, Text="X", TextColor3=Color3.fromRGB(255,255,255), Font=Enum.Font.GothamBold, TextSize=14, AutoButtonColor=false, BorderSizePixel=0, ZIndex=5}, Header)
-new("UICorner", {CornerRadius=UDim.new(0,6)}, closeBtn)
-closeBtn.MouseButton1Click:Connect(function() ScreenGui:Destroy(); getgenv().SAE_GUI=nil end)
-
--- TAB BAR (scroll horizontal biar 6 tab muat)
-local TabBar = new("Frame", {Size=UDim2.new(1,0,0,36), Position=UDim2.new(0,0,0,40), BackgroundColor3=Th.bg, BorderSizePixel=0}, Main)
-new("UIListLayout", {Padding=UDim.new(0,2), FillDirection=Enum.FillDirection.Horizontal, SortOrder=Enum.SortOrder.LayoutOrder, VerticalAlignment=Enum.VerticalAlignment.Center}, TabBar)
-
-local Content = new("Frame", {Size=UDim2.new(1,0,1,-76), Position=UDim2.new(0,0,0,76), BackgroundColor3=Th.bg, BorderSizePixel=0}, Main)
-
-local tabNames = {"Farm","Visual","Event","Misc","Safety","Config"}
-local tabs = {}
-for i, name in ipairs(tabNames) do
-    local btn = new("TextButton", {Size=UDim2.fromOffset(52,28), BackgroundColor3=Th.bg, Text=name, TextColor3=Th.text, Font=Enum.Font.GothamBold, TextSize=10, AutoButtonColor=false, BorderSizePixel=0}, TabBar)
-    new("UICorner", {CornerRadius=UDim.new(0,6)}, btn)
-    local page = new("ScrollingFrame", {Size=UDim2.new(1,-8,1,-8), Position=UDim2.new(0,4,0,4), BackgroundTransparency=1, BorderSizePixel=0, ScrollBarThickness=4, ScrollBarImageColor3=Th.accent, CanvasSize=UDim2.new(0,0,0,0), Visible=false}, Content)
-    tabs[string.lower(name)] = {btn=btn, page=page}
-end
-
-local function showTab(key)
-    for k, t in pairs(tabs) do
-        t.btn.BackgroundColor3 = Th.bg
-        t.page.Visible = false
-    end
-    tabs[key].btn.BackgroundColor3 = Th.accent
-    tabs[key].page.Visible = true
-end
-
-local function bindClick(btn, fn)
-    btn.MouseButton1Click:Connect(fn)
-    pcall(function() btn.TouchTap:Connect(fn) end)
-end
-
-for k, t in pairs(tabs) do
-    bindClick(t.btn, function() showTab(k) end)
-end
-
--- COMPONENTS
-local function addToggle(page, txt, default, cb)
-    local row = new("Frame", {Size=UDim2.new(1,-8,0,34), BackgroundTransparency=1}, page)
-    new("TextLabel", {Size=UDim2.new(1,-56,1,0), BackgroundTransparency=1, Text=txt, TextColor3=Th.text, Font=Enum.Font.Gotham, TextSize=12, TextXAlignment=Enum.TextXAlignment.Left}, row)
-    local sw = new("TextButton", {Size=UDim2.fromOffset(44,22), Position=UDim2.new(1,-44,0.5,-11), BackgroundColor3=default and Th.accent or Color3.fromRGB(50,50,60), Text="", AutoButtonColor=false, BorderSizePixel=0}, row)
-    new("UICorner", {CornerRadius=UDim.new(1,0)}, sw)
-    local dot = new("Frame", {Size=UDim2.fromOffset(18,18), Position=default and UDim2.new(1,-20,0.5,-9) or UDim2.new(0,2,0.5,-9), BackgroundColor3=Color3.fromRGB(255,255,255), BorderSizePixel=0}, sw)
-    new("UICorner", {CornerRadius=UDim.new(1,0)}, dot)
-    local s = default
-    bindClick(sw, function()
-        s = not s
-        TweenService:Create(sw,TweenInfo.new(0.15),{BackgroundColor3=s and Th.accent or Color3.fromRGB(50,50,60)}):Play()
-        TweenService:Create(dot,TweenInfo.new(0.15),{Position=s and UDim2.new(1,-20,0.5,-9) or UDim2.new(0,2,0.5,-9)}):Play()
-        if cb then cb(s) end
-    end)
-end
-
-local function addButton(page, txt, cb)
-    local b = new("TextButton", {Size=UDim2.new(1,-8,0,34), BackgroundColor3=Th.accent, Text=txt, TextColor3=Color3.fromRGB(255,255,255), Font=Enum.Font.GothamBold, TextSize=12, AutoButtonColor=true, BorderSizePixel=0}, page)
-    new("UICorner", {CornerRadius=UDim.new(0,8)}, b)
-    bindClick(b, cb)
-end
-
-local function addSlider(page, txt, min, max, default, cb)
-    local row = new("Frame", {Size=UDim2.new(1,-8,0,44), BackgroundTransparency=1}, page)
-    local lbl = new("TextLabel", {Size=UDim2.new(1,0,0,18), BackgroundTransparency=1, Text=txt..": "..default, TextColor3=Th.text, Font=Enum.Font.Gotham, TextSize=11, TextXAlignment=Enum.TextXAlignment.Left}, row)
-    local bg = new("Frame", {Size=UDim2.new(1,0,0,8), Position=UDim2.new(0,0,0,26), BackgroundColor3=Color3.fromRGB(50,50,60), BorderSizePixel=0}, row)
-    new("UICorner", {CornerRadius=UDim.new(1,0)}, bg)
-    local fill = new("Frame", {Size=UDim2.new((default-min)/(max-min),0,1,0), BackgroundColor3=Th.accent, BorderSizePixel=0}, bg)
-    new("UICorner", {CornerRadius=UDim.new(1,0)}, fill)
-    local knob = new("Frame", {Size=UDim2.fromOffset(14,14), Position=UDim2.new((default-min)/(max-min),-7,0.5,-7), BackgroundColor3=Color3.fromRGB(255,255,255), BorderSizePixel=0}, bg)
-    new("UICorner", {CornerRadius=UDim.new(1,0)}, knob)
-    local drag=false
-    local function upd(x)
-        local p = math.clamp((x-bg.AbsolutePosition.X)/bg.AbsoluteSize.X, 0, 1)
-        fill.Size = UDim2.new(p,0,1,0); knob.Position = UDim2.new(p,-7,0.5,-7)
-        local v = math.floor(min+(max-min)*p)
-        lbl.Text = txt..": "..v
-        if cb then cb(v) end
-    end
-    bg.InputBegan:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then drag=true; upd(i.Position.X) end end)
-    UserInputService.InputChanged:Connect(function(i) if drag and (i.UserInputType==Enum.UserInputType.MouseMovement or i.UserInputType==Enum.UserInputType.Touch) then upd(i.Position.X) end end)
-    UserInputService.InputEnded:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then drag=false end end)
-end
-
-local function addDropdown(page, txt, options, default, cb)
-    local row = new("Frame", {Size=UDim2.new(1,-8,0,34), BackgroundTransparency=1}, page)
-    new("TextLabel", {Size=UDim2.new(1,-120,1,0), BackgroundTransparency=1, Text=txt, TextColor3=Th.text, Font=Enum.Font.Gotham, TextSize=11, TextXAlignment=Enum.TextXAlignment.Left}, row)
-    local cur=default; local idx=1
-    for i,o in ipairs(options) do if o==default then idx=i end end
-    local btn = new("TextButton", {Size=UDim2.fromOffset(110,26), Position=UDim2.new(1,-110,0.5,-13), BackgroundColor3=Color3.fromRGB(40,40,50), Text=cur, TextColor3=Th.text, Font=Enum.Font.Gotham, TextSize=10, AutoButtonColor=false, BorderSizePixel=0}, row)
-    new("UICorner", {CornerRadius=UDim.new(0,6)}, btn)
-    bindClick(btn, function()
-        idx=idx+1; if idx>#options then idx=1 end
-        cur=options[idx]; btn.Text=cur
-        if cb then cb(cur) end
-    end)
-end
-
--- STATE + FITUR FULL
-local State = {
-    AutoSteal=false, AutoTransport=false, MultiTarget=false, SilentSteal=false,
-    FilterRarity="All", FilterWeight=0,
-    ESPBox=false, ESPName=false, ESPRarity=false, ESPTracer=false,
-    SpawnPredict=false, AlertSound=false, DivineRadar=false,
-    AutoHatch=false, AutoFusion=false, AutoSell=false, AutoTrails=false, AutoUpgrade=false,
-    AutoDrones=false, AutoSamples=false, AutoVault=false,
-    GodMode=false, AntiTrap=false, Fly=false, Noclip=false,
-    WalkSpeed=60, JumpPower=120, AutoHop=false, HopMaxPlayers=3,
-}
-
--- FARM
-addToggle(tabs.farm.page, "Auto Steal Semua Telur", false, function(v) State.AutoSteal=v end)
-addDropdown(tabs.farm.page, "Filter Rarity", {"All","Common","Uncommon","Rare","Epic","Legendary","Mythic","Cosmic","Secret","Eternal","Divine"}, "All", function(v) State.FilterRarity=v end)
-addSlider(tabs.farm.page, "Min Weight (kg)", 0, 100000000, 0, function(v) State.FilterWeight=v end)
-addToggle(tabs.farm.page, "Multi-Target Prioritas", false, function(v) State.MultiTarget=v end)
-addToggle(tabs.farm.page, "Auto Transport ke Base", false, function(v) State.AutoTransport=v end)
-addToggle(tabs.farm.page, "Silent Steal", false, function(v) State.SilentSteal=v end)
-
--- VISUAL
-addToggle(tabs.visual.page, "ESP Box", false, function(v) State.ESPBox=v end)
-addToggle(tabs.visual.page, "ESP Name", false, function(v) State.ESPName=v end)
-addToggle(tabs.visual.page, "ESP Rarity Color", false, function(v) State.ESPRarity=v end)
-addToggle(tabs.visual.page, "Tracer", false, function(v) State.ESPTracer=v end)
-addToggle(tabs.visual.page, "Spawn Prediction", false, function(v) State.SpawnPredict=v end)
-addToggle(tabs.visual.page, "Alert Sound Mythic+", false, function(v) State.AlertSound=v end)
-addToggle(tabs.visual.page, "Divine Radar", false, function(v) State.DivineRadar=v end)
-
--- EVENT
-addToggle(tabs.event.page, "Auto Hunt Drones", false, function(v) State.AutoDrones=v end)
-addToggle(tabs.event.page, "Auto Samples", false, function(v) State.AutoSamples=v end)
-addToggle(tabs.event.page, "Auto Vault Parts", false, function(v) State.AutoVault=v end)
-addToggle(tabs.event.page, "Auto Hatch", false, function(v) State.AutoHatch=v end)
-addToggle(tabs.event.page, "Auto Fusion", false, function(v) State.AutoFusion=v end)
-addToggle(tabs.event.page, "Auto Sell Pet Low", false, function(v) State.AutoSell=v end)
-
--- MISC
-addToggle(tabs.misc.page, "Auto Buy Trails", false, function(v) State.AutoTrails=v end)
-addToggle(tabs.misc.page, "Auto Upgrade Pen", false, function(v) State.AutoUpgrade=v end)
-addToggle(tabs.misc.page, "Godmode", false, function(v) State.GodMode=v end)
-addToggle(tabs.misc.page, "Anti Trap", false, function(v) State.AntiTrap=v end)
-addToggle(tabs.misc.page, "Fly + Noclip", false, function(v) State.Fly=v; State.Noclip=v end)
-addSlider(tabs.misc.page, "WalkSpeed", 16, 300, 60, function(v) State.WalkSpeed=v; local h=LP.Character and LP.Character:FindFirstChildOfClass("Humanoid"); if h then h.WalkSpeed=v end end)
-addSlider(tabs.misc.page, "JumpPower", 50, 400, 120, function(v) State.JumpPower=v; local h=LP.Character and LP.Character:FindFirstChildOfClass("Humanoid"); if h then h.UseJumpPower=true; h.JumpPower=v end end)
-
--- SAFETY
-addToggle(tabs.safety.page, "Anti Kick [LOCKED]", true, function() end)
-addToggle(tabs.safety.page, "Anti Ban [LOCKED]", true, function() end)
-addToggle(tabs.safety.page, "Anti AFK [LOCKED]", true, function() end)
-addToggle(tabs.safety.page, "Anti Detect [LOCKED]", true, function() end)
-addToggle(tabs.safety.page, "Auto Server Hop", false, function(v) State.AutoHop=v end)
-addSlider(tabs.safety.page, "Max Player", 1, 30, 3, function(v) State.HopMaxPlayers=v end)
-addButton(tabs.safety.page, "Cari Server Sepi", function()
-    local req = (syn and syn.request) or (http and http.request) or http_request or request
-    if not req then return end
-    pcall(function()
-        local res = req({Url="https://games.roblox.com/v1/games/"..game.PlaceId.."/servers/Public?sortOrder=Asc&limit=100"})
-        local data = HttpService:JSONDecode(res.Body)
-        for _, srv in ipairs(data.data) do
-            if srv.playing <= State.HopMaxPlayers and srv.id ~= game.JobId then
-                getgenv().SAE_AllowHop = true
-                TeleportService:TeleportToPlaceInstance(game.PlaceId, srv.id, LP)
-                return
-            end
-        end
-    end)
+end)
+UIS.InputEnded:Connect(function(i)
+    if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then drag=false end
 end)
 
--- CONFIG
-addButton(tabs.config.page, "Save Config", function() pcall(function() if writefile then writefile("SAE_Config.json", HttpService:JSONEncode(State)) end end) end)
-addButton(tabs.config.page, "Load Config", function() pcall(function() if readfile and isfile and isfile("SAE_Config.json") then local d=HttpService:JSONDecode(readfile("SAE_Config.json")); for k,v in pairs(d) do State[k]=v end end end) end)
+-- Resize
+local rsz=false; local rS,rZ
+ResizeH.InputBegan:Connect(function(i)
+    if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then
+        rsz=true; rS=i.Position; rZ=Main.Size
+    end
+end)
+UIS.InputChanged:Connect(function(i)
+    if rsz and (i.UserInputType==Enum.UserInputType.MouseMovement or i.UserInputType==Enum.UserInputType.Touch) then
+        local d=i.Position-rS
+        Main.Size=UDim2.fromOffset(math.clamp(rZ.X.Offset+d.X,260,700),math.clamp(rZ.Y.Offset+d.Y,240,720))
+    end
+end)
+UIS.InputEnded:Connect(function(i)
+    if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then rsz=false end
+end)
 
-showTab("farm")
+-- ============================================================
+-- 5. COMPONENTS
+-- ============================================================
+local function addToggle(pg,txt,def,cb)
+    local r=mk("Frame",{Size=UDim2.new(1,-8,0,32),BackgroundTransparency=1},pg)
+    mk("TextLabel",{Size=UDim2.new(1,-56,1,0),BackgroundTransparency=1,Text=txt,TextColor3=T.text,Font=Enum.Font.Gotham,TextSize=11,TextXAlignment=Enum.TextXAlignment.Left},r)
+    local s=mk("TextButton",{Size=UDim2.fromOffset(44,22),Position=UDim2.new(1,-44,0.5,-11),BackgroundColor3=def and T.accent or Color3.fromRGB(45,45,55),Text="",AutoButtonColor=false,BorderSizePixel=0},r)
+    mk("UICorner",{CornerRadius=UDim.new(1,0)},s)
+    local d=mk("Frame",{Size=UDim2.fromOffset(18,18),Position=def and UDim2.new(1,-20,0.5,-9) or UDim2.new(0,2,0.5,-9),BackgroundColor3=Color3.new(1,1,1),BorderSizePixel=0},s)
+    mk("UICorner",{CornerRadius=UDim.new(1,0)},d)
+    local st=def
+    bind(s,function()
+        st=not st
+        TS:Create(s,TweenInfo.new(0.15),{BackgroundColor3=st and T.accent or Color3.fromRGB(45,45,55)}):Play()
+        TS:Create(d,TweenInfo.new(0.15),{Position=st and UDim2.new(1,-20,0.5,-9) or UDim2.new(0,2,0.5,-9)}):Play()
+        if cb then cb(st) end
+    end)
+end
 
--- KEY LOGIC
-local VALID_KEYS = {["1234"]=true,["123"]=true,["1"]=true,["joy"]=true,["kaw"]=true,["steal"]=true,["egg"]=true,["vip"]=true,["admin"]=true}
-local verified = false
-local function doVerify()
-    if verified then return end
-    local input = tostring(KeyInput.Text or ""):gsub("%s+","")
-    if VALID_KEYS[input] then
-        verified = true
-        StatusLabel.Text = "Key valid!"
-        StatusLabel.TextColor3 = Th.success
-        task.wait(0.3)
-        KeyFrame.Visible = false
-        Main.Visible = true
-        pcall(function() StarterGui:SetCore("SendNotification", {Title="Verified", Text="Welcome!", Duration=3}) end)
-    else
-        StatusLabel.Text = "Key salah"
-        StatusLabel.TextColor3 = Th.danger
-        KeyInput.Text = ""
+local function addBtn(pg,txt,cb,color)
+    local b=mk("TextButton",{Size=UDim2.new(1,-8,0,32),BackgroundColor3=color or T.accent,Text=txt,TextColor3=Color3.new(1,1,1),Font=Enum.Font.GothamBold,TextSize=11,AutoButtonColor=true,BorderSizePixel=0},pg)
+    mk("UICorner",{CornerRadius=UDim.new(0,8)},b)
+    bind(b,cb)
+end
+
+local function addSlider(pg,txt,mn,mx,def,cb)
+    local r=mk("Frame",{Size=UDim2.new(1,-8,0,40),BackgroundTransparency=1},pg)
+    local l=mk("TextLabel",{Size=UDim2.new(1,0,0,16),BackgroundTransparency=1,Text=txt..": "..def,TextColor3=T.text,Font=Enum.Font.Gotham,TextSize=10,TextXAlignment=Enum.TextXAlignment.Left},r)
+    local bg=mk("Frame",{Size=UDim2.new(1,0,0,8),Position=UDim2.new(0,0,0,24),BackgroundColor3=Color3.fromRGB(45,45,55),BorderSizePixel=0},r)
+    mk("UICorner",{CornerRadius=UDim.new(1,0)},bg)
+    local f=mk("Frame",{Size=UDim2.new((def-mn)/(mx-mn),0,1,0),BackgroundColor3=T.accent,BorderSizePixel=0},bg)
+    mk("UICorner",{CornerRadius=UDim.new(1,0)},f)
+    local k=mk("Frame",{Size=UDim2.fromOffset(14,14),Position=UDim2.new((def-mn)/(mx-mn),-7,0.5,-7),BackgroundColor3=Color3.new(1,1,1),BorderSizePixel=0},bg)
+    mk("UICorner",{CornerRadius=UDim.new(1,0)},k)
+    local dr=false
+    local function up(x)
+        local p=math.clamp((x-bg.AbsolutePosition.X)/bg.AbsoluteSize.X,0,1)
+        f.Size=UDim2.new(p,0,1,0); k.Position=UDim2.new(p,-7,0.5,-7)
+        local v=math.floor(mn+(mx-mn)*p); l.Text=txt..": "..v
+        if cb then cb(v) end
+    end
+    bg.InputBegan:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then dr=true; up(i.Position.X) end end)
+    UIS.InputChanged:Connect(function(i) if dr and (i.UserInputType==Enum.UserInputType.MouseMovement or i.UserInputType==Enum.UserInputType.Touch) then up(i.Position.X) end end)
+    UIS.InputEnded:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then dr=false end end)
+end
+
+local function addLabel(pg,txt,color)
+    local l=mk("TextLabel",{Size=UDim2.new(1,-8,0,18),BackgroundTransparency=1,Text=txt,TextColor3=color or T.sub,Font=Enum.Font.Gotham,TextSize=10,TextXAlignment=Enum.TextXAlignment.Left},pg)
+    return l
+end
+
+-- ============================================================
+-- 6. STATE
+-- ============================================================
+local S={
+    AutoSteal=false,AutoTransport=false,SilentSteal=false,
+    SafeRoute=true,MaxDistance=800,
+    ESPBox=false,ESPName=false,ESPRarity=false,
+    AutoHatch=false,AutoFusion=false,
+    AutoDrones=false,AutoSamples=false,AutoVault=false,AutoSell=false,
+    GodMode=false,AntiTrap=false,Noclip=false,
+    ManualFly=false,
+    Walk=60,Jump=120,
+    AutoHop=false,MaxP=3,
+    Logs={},
+}
+
+-- ============================================================
+-- 7. REMOTE RESOLVER (dynamic, multi-parameter)
+-- ============================================================
+local RemoteCache={steal={},hatch={},fusion={},sell={},pickup={},drones={},samples={},vault={}}
+
+local function scanRemotes()
+    for k in pairs(RemoteCache) do RemoteCache[k]={} end
+    local containers={RS,RF,WS}
+    local kws={
+        steal={"steal","pickup","collect","grab","take"},
+        hatch={"hatch","incubate","open"},
+        fusion={"fusion","fuse","combine","merge"},
+        sell={"sell","shop","trade"},
+        pickup={"pickup","collect","grab"},
+        drones={"drone","scramble","hunt"},
+        samples={"sample","scramblepart","collectpart"},
+        vault={"vault","component","part"},
+    }
+    for _,parent in ipairs(containers) do
+        local ok,desc=pcall(function() return parent:GetDescendants() end)
+        if ok then
+            for _,v in ipairs(desc) do
+                if v:IsA("RemoteEvent") or v:IsA("RemoteFunction") then
+                    local n=v.Name:lower()
+                    for cat,words in pairs(kws) do
+                        for _,w in ipairs(words) do
+                            if n:find(w) then
+                                table.insert(RemoteCache[cat],v)
+                                break
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    -- Fallback: kalau nama generic, cek ancestor name
+    for _,parent in ipairs(containers) do
+        local ok,desc=pcall(function() return parent:GetDescendants() end)
+        if ok then
+            for _,v in ipairs(desc) do
+                if (v:IsA("RemoteEvent") or v:IsA("RemoteFunction")) and #RemoteCache.steal==0 then
+                    local anc=v.Parent and v.Parent.Name:lower() or ""
+                    if anc:find("egg") or anc:find("steal") or anc:find("collect") then
+                        table.insert(RemoteCache.steal,v)
+                    end
+                end
+            end
+        end
     end
 end
-bindClick(SubmitBtn, doVerify)
-pcall(function() KeyInput.FocusLost:Connect(function(e) if e then doVerify() end end) end)
+pcall(scanRemotes)
 
--- FUNCTIONS
-local RARITY = {
-    Common={color=Color3.fromRGB(255,255,255)}, Uncommon={color=Color3.fromRGB(80,200,120)},
-    Rare={color=Color3.fromRGB(60,140,255)}, Epic={color=Color3.fromRGB(170,80,255)},
-    Legendary={color=Color3.fromRGB(255,180,40)}, Mythic={color=Color3.fromRGB(255,80,120)},
-    Cosmic={color=Color3.fromRGB(100,220,255)}, Secret={color=Color3.fromRGB(255,0,180)},
-    Eternal={color=Color3.fromRGB(255,240,140)}, Divine={color=Color3.fromRGB(255,255,255)},
-}
-local function isEgg(v) return (v:IsA("BasePart") or v:IsA("Model")) and v.Name:lower():find("egg") end
-local function getRarity(e) local r=e:GetAttribute("Rarity"); return RARITY[r] and r or "Common" end
-local function rarityColor(e) return (RARITY[getRarity(e)] or RARITY.Common).color end
+local function fireAll(cat, ...)
+    local list=RemoteCache[cat] or {}
+    local okCount=0
+    for _,r in ipairs(list) do
+        local ok=pcall(function()
+            if r:IsA("RemoteFunction") then r:InvokeServer(...) else r:FireServer(...) end
+        end)
+        if ok then okCount=okCount+1 end
+    end
+    return okCount
+end
 
-local flyBV, flyBG
+-- ============================================================
+-- 8. ZONE DETECTOR (Common / Guard Ayam / Netral)
+-- ============================================================
+local NetralZones={}
+local function detectZones()
+    NetralZones={}
+    local kws={"common","guard","ayam","chicken","neutral","spawn","lobby","safe"}
+    for _,v in ipairs(WS:GetDescendants()) do
+        if v:IsA("BasePart") then
+            local n=v.Name:lower()
+            for _,k in ipairs(kws) do
+                if n:find(k) then
+                    table.insert(NetralZones,v)
+                    break
+                end
+            end
+        end
+    end
+end
+pcall(detectZones)
+
+local function getNearestZone(fromPos)
+    local best,bestD=nil,math.huge
+    for _,z in ipairs(NetralZones) do
+        local d=(z.Position-fromPos).Magnitude
+        if d<bestD then bestD=d; best=z end
+    end
+    return best,bestD
+end
+
+-- ============================================================
+-- 9. POSITION VALIDATOR (anti-rubberband, max speed)
+-- ============================================================
+local PosState={lastPos=nil,lastTime=0,rubberCount=0,lockUntil=0}
+
+local function checkRubberband()
+    if not LP.Character or not LP.Character:FindFirstChild("HumanoidRootPart") then return end
+    local cur=LP.Character.HumanoidRootPart.Position
+    local now=tick()
+    if PosState.lastPos and (now-PosState.lastTime)<1.0 then
+        local dist=(cur-PosState.lastPos).Magnitude
+        if dist>50 and PosState.lastPos.Magnitude>0 then
+            PosState.rubberCount=PosState.rubberCount+1
+            if PosState.rubberCount>=2 then
+                PosState.lockUntil=now+5
+                PosState.rubberCount=0
+            end
+        else
+            PosState.rubberCount=math.max(0,PosState.rubberCount-0.5)
+        end
+    end
+    PosState.lastPos=cur
+    PosState.lastTime=now
+end
+
+local function isLocked()
+    return tick()<PosState.lockUntil
+end
+
+local function safeTeleport(targetCF, steps, stepTime)
+    steps=steps or 3
+    stepTime=stepTime or 0.18
+    if not LP.Character or not LP.Character:FindFirstChild("HumanoidRootPart") then return false end
+    local hrp=LP.Character.HumanoidRootPart
+    local startCF=hrp.CFrame
+    local from=startCF.Position
+    local to=targetCF.Position
+    -- via netral zone dulu
+    local zone=select(1,getNearestZone(from))
+    local waypoints={}
+    if zone and (zone.Position-from).Magnitude>10 then
+        table.insert(waypoints,CFrame.new(zone.Position+Vector3.new(0,3,0)))
+    end
+    for i=1,steps do
+        local alpha=i/steps
+        local p=from:Lerp(to,alpha)
+        table.insert(waypoints,CFrame.new(p,to))
+    end
+    for _,wp in ipairs(waypoints) do
+        pcall(function()
+            TS:Create(hrp,TweenInfo.new(stepTime,Enum.EasingStyle.Linear),{CFrame=wp}):Play()
+        end)
+        task.wait(stepTime+0.02)
+    end
+    return true
+end
+
+-- ============================================================
+-- 10. FLY (internal, dipakai Auto Steal)
+-- ============================================================
+local fBV,fBG
 local function startFly()
-    if flyBV then return end
-    local char=LP.Character; if not char then return end
-    local hrp=char:FindFirstChild("HumanoidRootPart"); if not hrp then return end
-    flyBV=Instance.new("BodyVelocity"); flyBV.MaxForce=Vector3.new(1e5,1e5,1e5); flyBV.Velocity=Vector3.zero; flyBV.Parent=hrp
-    flyBG=Instance.new("BodyGyro"); flyBG.MaxTorque=Vector3.new(1e5,1e5,1e5); flyBG.P=1e4; flyBG.Parent=hrp
+    if fBV then return end
+    local c=LP.Character; if not c then return end
+    local h=c:FindFirstChild("HumanoidRootPart"); if not h then return end
+    fBV=Instance.new("BodyVelocity",h); fBV.MaxForce=Vector3.new(1e5,1e5,1e5); fBV.Velocity=Vector3.zero
+    fBG=Instance.new("BodyGyro",h); fBG.MaxTorque=Vector3.new(1e5,1e5,1e5); fBG.P=1e4
 end
 local function stopFly()
-    if flyBV then flyBV:Destroy(); flyBV=nil end
-    if flyBG then flyBG:Destroy(); flyBG=nil end
+    if fBV then fBV:Destroy(); fBV=nil end
+    if fBG then fBG:Destroy(); fBG=nil end
 end
 
--- STEAL LOOP
-task.spawn(function() while task.wait(0.4) do
-    if State.AutoSteal then
-        startFly()
-        for _,v in ipairs(Workspace:GetDescendants()) do
-            if isEgg(v) then
-                local target = v:IsA("BasePart") and v or v.PrimaryPart
-                if target and LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
-                    LP.Character.HumanoidRootPart.CFrame = target.CFrame * CFrame.new(0,2,0)
-                    for _,r in ipairs(ReplicatedStorage:GetDescendants()) do
-                        if r:IsA("RemoteEvent") and r.Name:lower():find("steal") then pcall(function() r:FireServer(v) end) end
-                    end
-                end
-                break
-            end
+-- ============================================================
+-- 11. HONEYPOT FILTER
+-- ============================================================
+local HoneypotKeywords={"honeypot","bait","decoy","trap","fake","dummy","test"}
+local function isHoneypot(v)
+    local anc=v
+    local depth=0
+    while anc and depth<8 do
+        local n=anc.Name:lower()
+        for _,k in ipairs(HoneypotKeywords) do
+            if n:find(k) then return true end
         end
-    elseif not State.Fly then
-        if flyBV then stopFly() end
+        anc=anc.Parent
+        depth=depth+1
     end
-end end)
-
--- FLY MANUAL
-task.spawn(function() while task.wait(0.1) do
-    if State.Fly then
-        local char=LP.Character
-        if char then
-            local hrp=char:FindFirstChild("HumanoidRootPart")
-            if hrp and not flyBV then startFly() end
-            if flyBV then
-                local dir=Vector3.zero
-                local cam=Workspace.CurrentCamera
-                if UserInputService:IsKeyDown(Enum.KeyCode.W) then dir+=cam.CFrame.LookVector end
-                if UserInputService:IsKeyDown(Enum.KeyCode.S) then dir-=cam.CFrame.LookVector end
-                if UserInputService:IsKeyDown(Enum.KeyCode.A) then dir-=cam.CFrame.RightVector end
-                if UserInputService:IsKeyDown(Enum.KeyCode.D) then dir+=cam.CFrame.RightVector end
-                if UserInputService:IsKeyDown(Enum.KeyCode.Space) then dir+=Vector3.yAxis end
-                flyBV.Velocity=dir.Magnitude>0 and dir.Unit*State.WalkSpeed or Vector3.zero
-                flyBG.CFrame=cam.CFrame
-            end
-        end
-    elseif flyBV then stopFly() end
-end end)
-
--- ESP
-local espFolder = new("Folder", {Name="ESP"}, ScreenGui)
-task.spawn(function() while task.wait(0.6) do
-    for _,v in pairs(espFolder:GetChildren()) do v:Destroy() end
-    if State.ESPBox or State.ESPName or State.ESPRarity then
-        for _,v in ipairs(Workspace:GetDescendants()) do
-            if isEgg(v) then
-                local target = v:IsA("BasePart") and v or v.PrimaryPart
-                if target then
-                    if State.ESPBox then
-                        local box = Instance.new("BoxHandleAdornment", espFolder)
-                        box.Adornee = target; box.Size = target.Size + Vector3.new(0.5,0.5,0.5)
-                        box.Transparency = 0.5; box.Color3 = rarityColor(v); box.AlwaysOnTop = true
-                    end
-                    if State.ESPName or State.ESPRarity then
-                        local bill = Instance.new("BillboardGui", espFolder)
-                        bill.Size = UDim2.fromOffset(150,40); bill.StudsOffsetWorldSpace = Vector3.new(0,3,0)
-                        bill.AlwaysOnTop = true; bill.Adornee = target
-                        local lbl = Instance.new("TextLabel", bill)
-                        lbl.Size = UDim2.fromScale(1,1); lbl.BackgroundTransparency = 1
-                        lbl.TextColor3 = rarityColor(v); lbl.Font = Enum.Font.GothamBold
-                        lbl.TextSize = 11; lbl.TextStrokeTransparency = 0.5
-                        local txt = ""
-                        if State.ESPName then txt = txt .. v.Name end
-                        if State.ESPRarity then txt = txt .. "\n" .. getRarity(v) end
-                        lbl.Text = txt
-                    end
-                end
-            end
-        end
-    end
-end end)
-
--- GODMODE
-task.spawn(function() while task.wait(1) do
-    if State.GodMode then
-        local char=LP.Character
-        if char then
-            local h=char:FindFirstChildOfClass("Humanoid")
-            if h then h.MaxHealth=math.huge; h.Health=math.huge end
-        end
-    end
-end end)
-
--- NOCLIP
-task.spawn(function() while task.wait(0.15) do
-    if State.Noclip then
-        local char=LP.Character
-        if char then for _,v in ipairs(char:GetChildren()) do if v:IsA("BasePart") and v.CanCollide then v.CanCollide=false end end end
-    end
-end end)
-
--- ANTI TRAP
-task.spawn(function() while task.wait(2) do
-    if State.AntiTrap then
-        for _,v in ipairs(Workspace:GetDescendants()) do
-            if v:IsA("BasePart") and (v.Name:lower():find("trap") or v.Name:lower():find("spike")) then v.CanTouch=false; v.CanCollide=false end
-        end
-    end
-end end)
-
--- AUTO HATCH
-task.spawn(function() while task.wait(2) do
-    if State.AutoHatch then
-        for _,v in ipairs(ReplicatedStorage:GetDescendants()) do
-            if v:IsA("RemoteEvent") and v.Name:lower():find("hatch") then pcall(function() v:FireServer() end) end
-        end
-    end
-end end)
-
--- AUTO FUSION
-task.spawn(function() while task.wait(5) do
-    if State.AutoFusion then
-        for _,v in ipairs(ReplicatedStorage:GetDescendants()) do
-            if v:IsA("RemoteEvent") and v.Name:lower():find("fusion") then pcall(function() v:FireServer() end) end
-        end
-    end
-end end)
-
--- AUTO SELL
-task.spawn(function() while task.wait(10) do
-    if State.AutoSell then
-        for _,v in ipairs(ReplicatedStorage:GetDescendants()) do
-            if v:IsA("RemoteEvent") and v.Name:lower():find("sell") then pcall(function() v:FireServer() end) end
-        end
-    end
-end end)
-
--- AUTO TRAILS
-task.spawn(function() while task.wait(8) do
-    if State.AutoTrails then
-        for _,v in ipairs(ReplicatedStorage:GetDescendants()) do
-            if v:IsA("RemoteEvent") and v.Name:lower():find("trail") then pcall(function() v:FireServer() end) end
-        end
-    end
-end end)
-
--- AUTO UPGRADE
-task.spawn(function() while task.wait(10) do
-    if State.AutoUpgrade then
-        for _,v in ipairs(ReplicatedStorage:GetDescendants()) do
-            if v:IsA("RemoteEvent") and (v.Name:lower():find("upgrade") or v.Name:lower():find("treadmill")) then pcall(function() v:FireServer() end) end
-        end
-    end
-end end)
-
--- DRONES
-task.spawn(function() while task.wait(2) do
-    if State.AutoDrones then
-        for _,v in ipairs(Workspace:GetDescendants()) do
-            if v:IsA("Model") and (v.Name:lower():find("drone") or v.Name:lower():find("scramble")) then
-                local hrp = v:FindFirstChild("HumanoidRootPart") or v.PrimaryPart
-                if hrp and LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
-                    LP.Character.HumanoidRootPart.CFrame = hrp.CFrame * CFrame.new(0,2,0)
-                end
-            end
-        end
-    end
-end end)
-
--- SAMPLES + VAULT
-task.spawn(function() while task.wait(2) do
-    if State.AutoSamples or State.AutoVault then
-        for _,v in ipairs(Workspace:GetDescendants()) do
-            if v:IsA("BasePart") and ((State.AutoSamples and (v.Name:lower():find("sample") or v.Name:lower():find("part")))
-            or (State.AutoVault and (v.Name:lower():find("vault") or v.Name:lower():find("component")))) then
-                if LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
-                    LP.Character.HumanoidRootPart.CFrame = v.CFrame * CFrame.new(0,2,0)
-                end
-            end
-        end
-    end
-end end)
-
--- AUTO TRANSPORT
-task.spawn(function() while task.wait(0.8) do
-    if State.AutoSteal and State.AutoTransport then
-        local char=LP.Character
-        if char and char:FindFirstChild("HumanoidRootPart") then
-            local carrying=false
-            for _,v in ipairs(char:GetChildren()) do if v.Name:lower():find("egg") then carrying=true end end
-            if carrying then
-                for _,v in ipairs(Workspace:GetDescendants()) do
-                    if v:IsA("BasePart") and (v.Name:lower():find("base") or v.Name:lower():find("deposit")) then
-                        char.HumanoidRootPart.CFrame=v.CFrame*CFrame.new(0,3,0)
-                        break
-                    end
-                end
-            end
-        end
-    end
-end end)
-
-print("[SAE] Full Fitur v16 loaded. Key: 1234")}, KeyFrame)
-new("UICorner", {CornerRadius=UDim.new(0,10)}, KeyBox)
-new("UIStroke", {Color=Th.accent, Thickness=1, Transparency=0.5}, KeyBox)
-
-local KeyInput = new("TextBox", {
-    Size=UDim2.new(1,-20,1,0), Position=UDim2.new(0,10,0,0),
-    BackgroundTransparency=1, Text="",
-    PlaceholderText="Ketik key...",
-    PlaceholderColor3=Th.sub, TextColor3=Th.text,
-    Font=Enum.Font.Gotham, TextSize=18,
-    TextXAlignment=Enum.TextXAlignment.Left,
-    ClearTextOnFocus=false, ZIndex=1010,
-}, KeyBox)
-
-local SubmitBtn = new("TextButton", {
-    Size=UDim2.new(1,-60,0,64), Position=UDim2.new(0,30,0,165),
-    BackgroundColor3=Th.accent, Text="VERIFIKASI",
-    TextColor3=Color3.fromRGB(255,255,255),
-    Font=Enum.Font.GothamBold, TextSize=20,
-    AutoButtonColor=true, BorderSizePixel=0, ZIndex=1010, Active=true,
-}, KeyFrame)
-new("UICorner", {CornerRadius=UDim.new(0,12)}, SubmitBtn)
-
-local StatusLabel = new("TextLabel", {
-    Size=UDim2.new(1,0,0,18), Position=UDim2.new(0,0,0,240),
-    BackgroundTransparency=1, Text="",
-    TextColor3=Th.danger, Font=Enum.Font.Gotham, TextSize=13, ZIndex=1001,
-}, KeyFrame)
-
--- ============ MAIN GUI ============
-local Main = new("Frame", {
-    Name="Main",
-    Size=UDim2.new(0.95, 0, 0.85, 0),
-    Position=UDim2.new(0.025, 0, 0.075, 0),
-    BackgroundColor3=Th.bg, BorderSizePixel=0,
-    ClipsDescendants=true, Visible=false,
-}, ScreenGui)
-new("UICorner", {CornerRadius=UDim.new(0,14)}, Main)
-new("UIStroke", {Color=Th.accent, Thickness=2, Transparency=0.2}, Main)
-
--- Header
-local Header = new("Frame", {Size=UDim2.new(1,0,0,50), BackgroundColor3=Th.panel, BorderSizePixel=0}, Main)
-new("TextLabel", {
-    Size=UDim2.new(1,-60,0,22), Position=UDim2.new(0,16,0,6),
-    BackgroundTransparency=1, Text="  STEAL AN EGG",
-    TextColor3=Th.text, Font=Enum.Font.GothamBold, TextSize=17,
-    TextXAlignment=Enum.TextXAlignment.Left,
-}, Header)
-new("TextLabel", {
-    Size=UDim2.new(1,-60,0,14), Position=UDim2.new(0,16,0,28),
-    BackgroundTransparency=1, Text="  Mobile Work | Anti ON",
-    TextColor3=Th.sub, Font=Enum.Font.Gotham, TextSize=10,
-    TextXAlignment=Enum.TextXAlignment.Left,
-}, Header)
-new("Frame", {Size=UDim2.new(1,0,0,1), Position=UDim2.new(0,0,0,50), BackgroundColor3=Th.accent, BorderSizePixel=0, BackgroundTransparency=0.5}, Main)
-
--- Close button
-local closeBtn = new("TextButton", {
-    Size=UDim2.fromOffset(40,40), Position=UDim2.new(1,-50,0,5),
-    BackgroundColor3=Th.danger, Text="X",
-    TextColor3=Color3.fromRGB(255,255,255),
-    Font=Enum.Font.GothamBold, TextSize=18,
-    AutoButtonColor=false, BorderSizePixel=0, ZIndex=1010,
-}, Header)
-new("UICorner", {CornerRadius=UDim.new(0,8)}, closeBtn)
-bindClick(closeBtn, function()
-    ScreenGui:Destroy()
-    getgenv().SAE_GUI = nil
-end)
-
--- Tab bar (horizontal mobile)
-local TabBar = new("Frame", {Size=UDim2.new(1,0,0,50), Position=UDim2.new(0,0,0,50), BackgroundColor3=Th.bg, BorderSizePixel=0}, Main)
-new("UIListLayout", {Padding=UDim.new(0.005,0), FillDirection=Enum.FillDirection.Horizontal, SortOrder=Enum.SortOrder.LayoutOrder, HorizontalAlignment=Enum.HorizontalAlignment.Center}, TabBar)
-
-local Content = new("Frame", {Size=UDim2.new(1,0,1,-100), Position=UDim2.new(0,0,0,100), BackgroundColor3=Th.bg, BorderSizePixel=0}, Main)
-
--- Tab names
-local tabNames = {"Farm","Visual","Event","Misc","Safety","Config"}
-local tabs = {}
-for i, name in ipairs(tabNames) do
-    local btn = new("TextButton", {
-        Size=UDim2.new(1/6,-4,1,-10), Position=UDim2.new(0,0,0,5),
-        BackgroundColor3=Th.bg, Text=name,
-        TextColor3=Th.text, Font=Enum.Font.GothamBold, TextSize=11,
-        AutoButtonColor=false, BorderSizePixel=0,
-    }, TabBar)
-    new("UICorner", {CornerRadius=UDim.new(0,8)}, btn)
-    local page = new("ScrollingFrame", {
-        Size=UDim2.new(1,-10,1,-10), Position=UDim2.new(0,5,0,5),
-        BackgroundTransparency=1, BorderSizePixel=0,
-        ScrollBarThickness=6, ScrollBarImageColor3=Th.accent,
-        CanvasSize=UDim2.new(0,0,0,0), Visible=false,
-    }, Content)
-    tabs[string.lower(name)] = {btn=btn, page=page, name=name}
+    return false
 end
 
-local function showTab(key)
-    for k, t in pairs(tabs) do
-        t.btn.BackgroundColor3 = Th.bg
-        t.page.Visible = false
-    end
-    tabs[key].btn.BackgroundColor3 = Th.accent
-    tabs[key].page.Visible = true
-end
-
-for k, t in pairs(tabs) do
-    bindClick(t.btn, function() showTab(k) end)
-end
-
--- ============ COMPONENTS ============
-local function addToggle(page, txt, default, cb)
-    local row = new("Frame", {Size=UDim2.new(1,-10,0,52), BackgroundTransparency=1}, page)
-    new("TextLabel", {
-        Size=UDim2.new(1,-80,1,0), BackgroundTransparency=1,
-        Text=txt, TextColor3=Th.text, Font=Enum.Font.Gotham, TextSize=14,
-        TextXAlignment=Enum.TextXAlignment.Left,
-    }, row)
-    local sw = new("TextButton", {
-        Size=UDim2.fromOffset(60,32), Position=UDim2.new(1,-60,0.5,-16),
-        BackgroundColor3=default and Th.accent or Color3.fromRGB(50,50,60),
-        Text="", AutoButtonColor=false, BorderSizePixel=0, ZIndex=5,
-    }, row)
-    new("UICorner", {CornerRadius=UDim.new(1,0)}, sw)
-    local dot = new("Frame", {
-        Size=UDim2.fromOffset(26,26),
-        Position=default and UDim2.new(1,-28,0.5,-13) or UDim2.new(0,3,0.5,-13),
-        BackgroundColor3=Color3.fromRGB(255,255,255), BorderSizePixel=0,
-    }, sw)
-    new("UICorner", {CornerRadius=UDim.new(1,0)}, dot)
-    local s = default
-    bindClick(sw, function()
-        s = not s
-        TweenService:Create(sw,TweenInfo.new(0.15),{BackgroundColor3=s and Th.accent or Color3.fromRGB(50,50,60)}):Play()
-        TweenService:Create(dot,TweenInfo.new(0.15),{Position=s and UDim2.new(1,-28,0.5,-13) or UDim2.new(0,3,0.5,-13)}):Play()
-        if cb then cb(s) end
-    end)
-end
-
-local function addButton(page, txt, cb)
-    local b = new("TextButton", {
-        Size=UDim2.new(1,-10,0,50), BackgroundColor3=Th.accent,
-        Text=txt, TextColor3=Color3.fromRGB(255,255,255),
-        Font=Enum.Font.GothamBold, TextSize=14,
-        AutoButtonColor=true, BorderSizePixel=0,
-    }, page)
-    new("UICorner", {CornerRadius=UDim.new(0,10)}, b)
-    bindClick(b, cb)
-end
-
-local function addSlider(page, txt, min, max, default, cb)
-    local row = new("Frame", {Size=UDim2.new(1,-10,0,60), BackgroundTransparency=1}, page)
-    local lbl = new("TextLabel", {
-        Size=UDim2.new(1,0,0,22), BackgroundTransparency=1,
-        Text=txt..": "..default, TextColor3=Th.text,
-        Font=Enum.Font.Gotham, TextSize=13,
-        TextXAlignment=Enum.TextXAlignment.Left,
-    }, row)
-    local bg = new("Frame", {
-        Size=UDim2.new(1,0,0,12), Position=UDim2.new(0,0,0,35),
-        BackgroundColor3=Color3.fromRGB(50,50,60), BorderSizePixel=0,
-    }, row)
-    new("UICorner", {CornerRadius=UDim.new(1,0)}, bg)
-    local fill = new("Frame", {
-        Size=UDim2.new((default-min)/(max-min),0,1,0),
-        BackgroundColor3=Th.accent, BorderSizePixel=0,
-    }, bg)
-    new("UICorner", {CornerRadius=UDim.new(1,0)}, fill)
-    local knob = new("Frame", {
-        Size=UDim2.fromOffset(20,20),
-        Position=UDim2.new((default-min)/(max-min),-10,0.5,-10),
-        BackgroundColor3=Color3.fromRGB(255,255,255), BorderSizePixel=0,
-    }, bg)
-    new("UICorner", {CornerRadius=UDim.new(1,0)}, knob)
-    local drag = false
-    local function upd(x)
-        local p = math.clamp((x-bg.AbsolutePosition.X)/bg.AbsoluteSize.X, 0, 1)
-        fill.Size = UDim2.new(p,0,1,0)
-        knob.Position = UDim2.new(p,-10,0.5,-10)
-        local v = math.floor(min + (max-min)*p)
-        lbl.Text = txt..": "..v
-        if cb then cb(v) end
-    end
-    bg.InputBegan:Connect(function(i)
-        if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then
-            drag = true; upd(i.Position.X)
-        end
-    end)
-    UserInputService.InputChanged:Connect(function(i)
-        if drag and (i.UserInputType==Enum.UserInputType.MouseMovement or i.UserInputType==Enum.UserInputType.Touch) then
-            upd(i.Position.X)
-        end
-    end)
-    UserInputService.InputEnded:Connect(function(i)
-        if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then
-            drag = false
-        end
-    end)
-end
-
--- ============ FITUR ============
-local State = {
-    AutoSteal=false, AutoTransport=false, SilentSteal=false, MultiTarget=false,
-    ESPBox=false, ESPName=false, ESPRarity=false, SpawnPredict=false,
-    AutoHatch=false, AutoFusion=false, AutoSell=false,
-    AutoHuntDrones=false, AutoSamples=false, AutoVault=false,
-    GodMode=false, AntiTrap=false, Fly=false, Noclip=false,
-    WalkSpeed=60, JumpPower=120, AutoHop=false, HopMaxPlayers=3,
+-- ============================================================
+-- 12. EGG DETECTOR
+-- ============================================================
+local RAR={
+    Common=Color3.fromRGB(255,255,255),Uncommon=Color3.fromRGB(80,200,120),
+    Rare=Color3.fromRGB(60,140,255),Epic=Color3.fromRGB(170,80,255),
+    Legendary=Color3.fromRGB(255,180,40),Mythic=Color3.fromRGB(255,80,120),
+    Cosmic=Color3.fromRGB(100,220,255),Secret=Color3.fromRGB(255,0,180),
+    Eternal=Color3.fromRGB(255,240,140),Divine=Color3.fromRGB(255,255,255),
 }
 
-addToggle(tabs.farm.page, "Auto Steal", false, function(v) State.AutoSteal=v end)
-addToggle(tabs.farm.page, "Auto Transport", false, function(v) State.AutoTransport=v end)
-addToggle(tabs.farm.page, "Silent Steal", false, function(v) State.SilentSteal=v end)
-addToggle(tabs.farm.page, "Multi-Target", false, function(v) State.MultiTarget=v end)
+local function isEgg(v)
+    if not (v:IsA("BasePart") or v:IsA("Model")) then return false end
+    if isHoneypot(v) then return false end
+    local n=v.Name:lower()
+    if n:find("egg") or v:GetAttribute("IsEgg") or v:GetAttribute("Rarity") then
+        local pos=v:IsA("BasePart") and v.Position or (v.PrimaryPart and v.PrimaryPart.Position)
+        if pos and pos.Y>-50 then return true end
+    end
+    return false
+end
 
-addToggle(tabs.visual.page, "ESP Box", false, function(v) State.ESPBox=v end)
-addToggle(tabs.visual.page, "ESP Name", false, function(v) State.ESPName=v end)
-addToggle(tabs.visual.page, "ESP Rarity", false, function(v) State.ESPRarity=v end)
-addToggle(tabs.visual.page, "Spawn Prediction", false, function(v) State.SpawnPredict=v end)
+local function getEggPos(v)
+    if v:IsA("BasePart") then return v.Position end
+    if v:IsA("Model") and v.PrimaryPart then return v.PrimaryPart.Position end
+    local p=v:FindFirstChildWhichIsA("BasePart")
+    return p and p.Position
+end
 
-addToggle(tabs.event.page, "Auto Hunt Drones", false, function(v) State.AutoHuntDrones=v end)
-addToggle(tabs.event.page, "Auto Samples", false, function(v) State.AutoSamples=v end)
-addToggle(tabs.event.page, "Auto Vault Parts", false, function(v) State.AutoVault=v end)
-addToggle(tabs.event.page, "Auto Hatch", false, function(v) State.AutoHatch=v end)
-addToggle(tabs.event.page, "Auto Fusion", false, function(v) State.AutoFusion=v end)
+local function getEggCF(v)
+    if v:IsA("BasePart") then return v.CFrame end
+    if v:IsA("Model") and v.PrimaryPart then return v.PrimaryPart.CFrame end
+    local p=v:FindFirstChildWhichIsA("BasePart")
+    return p and p.CFrame
+end
 
-addToggle(tabs.misc.page, "Godmode", false, function(v) State.GodMode=v end)
-addToggle(tabs.misc.page, "Anti Trap", false, function(v) State.AntiTrap=v end)
-addToggle(tabs.misc.page, "Fly", false, function(v) State.Fly=v end)
-addToggle(tabs.misc.page, "Noclip", false, function(v) State.Noclip=v end)
-addSlider(tabs.misc.page, "WalkSpeed", 16, 300, 60, function(v)
-    State.WalkSpeed=v
+local function rar(v)
+    local r=v:GetAttribute("Rarity")
+    return RAR[r] and r or "Common"
+end
+local function rarColor(v) return RAR[rar(v)] or RAR.Common end
+
+-- ============================================================
+-- 13. AUTO STEAL (fly integrated, safe route)
+-- ============================================================
+local AutoStealRunning=false
+
+local function autoStealStep()
+    if isLocked() then return end
+    if not AutoStealRunning then return end
+
+    -- Cari target egg
+    local eggs={}
+    for _,v in ipairs(WS:GetDescendants()) do
+        if isEgg(v) then
+            local p=getEggPos(v)
+            if p and LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
+                local d=(p-LP.Character.HumanoidRootPart.Position).Magnitude
+                if d<S.MaxDistance then table.insert(eggs,v) end
+            end
+        end
+    end
+    if #eggs==0 then return end
+
+    local target=eggs[1]
+    local tcf=getEggCF(target)
+    if not tcf then return end
+
+    -- Internal fly active
+    startFly()
+
+    -- Safe route via netral zone
+    if S.SafeRoute then
+        safeTeleport(tcf,3,0.16)
+    else
+        pcall(function()
+            if LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
+                LP.Character.HumanoidRootPart.CFrame=tcf*CFrame.new(0,2,0)
+            end
+        end)
+    end
+
+    -- Fire steal remotes
+    fireAll("steal",target)
+    fireAll("pickup",target)
+
+    -- Auto transport ke pen
+    if S.AutoTransport then
+        task.wait(0.1)
+        for _,v in ipairs(WS:GetDescendants()) do
+            if v:IsA("BasePart") and (v.Name:lower():find("pen") or v.Name:lower():find("base") or v.Name:lower():find("deposit") or v.Name:lower():find("kandang")) then
+                if not isHoneypot(v) then
+                    safeTeleport(v.CFrame,2,0.16)
+                    break
+                end
+            end
+        end
+    end
+
+    if not S.ManualFly then
+        task.wait(0.1)
+        stopFly()
+    end
+end
+
+task.spawn(function()
+    while task.wait(0.35+math.random()*0.25) do
+        checkRubberband()
+        if S.AutoSteal and not isLocked() then
+            AutoStealRunning=true
+            pcall(autoStealStep)
+        else
+            AutoStealRunning=false
+            if not S.ManualFly and fBV then stopFly() end
+        end
+    end
+end)
+
+-- Manual fly (opsional, Misc tab)
+task.spawn(function()
+    while task.wait(0.1) do
+        if S.ManualFly then
+            local c=LP.Character
+            if c then
+                local h=c:FindFirstChild("HumanoidRootPart")
+                if h and not fBV then startFly() end
+                if fBV then
+                    local d=Vector3.zero
+                    local cam=WS.CurrentCamera
+                    if UIS:IsKeyDown(Enum.KeyCode.W) then d+=cam.CFrame.LookVector end
+                    if UIS:IsKeyDown(Enum.KeyCode.S) then d-=cam.CFrame.LookVector end
+                    if UIS:IsKeyDown(Enum.KeyCode.A) then d-=cam.CFrame.RightVector end
+                    if UIS:IsKeyDown(Enum.KeyCode.D) then d+=cam.CFrame.RightVector end
+                    if UIS:IsKeyDown(Enum.KeyCode.Space) then d+=Vector3.yAxis end
+                    fBV.Velocity=d.Magnitude>0 and d.Unit*S.Walk or Vector3.zero
+                    fBG.CFrame=cam.CFrame
+                end
+            end
+        elseif not S.AutoSteal and fBV then
+            stopFly()
+        end
+    end
+end)
+
+-- ============================================================
+-- 14. ESP
+-- ============================================================
+local espF=mk("Folder",{Name="ESP"},GUI)
+task.spawn(function()
+    while task.wait(0.5) do
+        for _,v in pairs(espF:GetChildren()) do v:Destroy() end
+        if S.ESPBox or S.ESPName or S.ESPRarity then
+            for _,v in ipairs(WS:GetDescendants()) do
+                if isEgg(v) then
+                    local t=v:IsA("BasePart") and v or v.PrimaryPart
+                    if t then
+                        if S.ESPBox then
+                            local b=Instance.new("BoxHandleAdornment",espF)
+                            b.Adornee=t; b.Size=t.Size+Vector3.new(0.5,0.5,0.5)
+                            b.Transparency=0.5; b.Color3=rarColor(v); b.AlwaysOnTop=true
+                        end
+                        if S.ESPName or S.ESPRarity then
+                            local bg=Instance.new("BillboardGui",espF)
+                            bg.Size=UDim2.fromOffset(160,50); bg.StudsOffsetWorldSpace=Vector3.new(0,3,0)
+                            bg.AlwaysOnTop=true; bg.Adornee=t
+                            local l=Instance.new("TextLabel",bg)
+                            l.Size=UDim2.fromScale(1,1); l.BackgroundTransparency=1
+                            l.TextColor3=rarColor(v); l.Font=Enum.Font.GothamBold
+                            l.TextSize=11; l.TextStrokeTransparency=0.5
+                            local tx=""
+                            if S.ESPName then tx=tx..v.Name end
+                            if S.ESPRarity then tx=tx.."\n"..rar(v) end
+                            if LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
+                                local d=(t.Position-LP.Character.HumanoidRootPart.Position).Magnitude
+                                tx=tx.."\n"..math.floor(d).." studs"
+                            end
+                            l.Text=tx
+                        end
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- ============================================================
+-- 15. AUTOMATION (validated — auto disable kalau remote kosong)
+-- ============================================================
+task.spawn(function()
+    while task.wait(2.5) do
+        if S.AutoHatch and #RemoteCache.hatch>0 then
+            fireAll("hatch")
+        end
+    end
+end)
+
+task.spawn(function()
+    while task.wait(5) do
+        if S.AutoFusion and #RemoteCache.fusion>0 then
+            fireAll("fusion")
+        end
+    end
+end)
+
+task.spawn(function()
+    while task.wait(6) do
+        if S.AutoSell and #RemoteCache.sell>0 then
+            fireAll("sell")
+        end
+    end
+end)
+
+task.spawn(function()
+    while task.wait(2) do
+        if S.AutoDrones and not isLocked() then
+            for _,v in ipairs(WS:GetDescendants()) do
+                if v:IsA("Model") and (v.Name:lower():find("drone") or v.Name:lower():find("scramble")) and not isHoneypot(v) then
+                    local h=v:FindFirstChild("HumanoidRootPart") or v.PrimaryPart
+                    if h and LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
+                        safeTeleport(h.CFrame,2,0.18)
+                    end
+                end
+            end
+        end
+    end
+end)
+
+task.spawn(function()
+    while task.wait(2.5) do
+        if (S.AutoSamples or S.AutoVault) and not isLocked() then
+            for _,v in ipairs(WS:GetDescendants()) do
+                if v:IsA("BasePart") and not isHoneypot(v) then
+                    local n=v.Name:lower()
+                    local match=(S.AutoSamples and (n:find("sample") or n:find("scramblepart")))
+                    or (S.AutoVault and (n:find("vault") or n:find("component")))
+                    if match then safeTeleport(v.CFrame,2,0.18) end
+                end
+            end
+        end
+    end
+end)
+
+-- ============================================================
+-- 16. CHARACTER MODS
+-- ============================================================
+task.spawn(function()
+    while task.wait(1) do
+        if S.GodMode then
+            local c=LP.Character
+            if c then local h=c:FindFirstChildOfClass("Humanoid"); if h then h.MaxHealth=math.huge; h.Health=math.huge end end
+        end
+    end
+end)
+
+task.spawn(function()
+    while task.wait(0.15) do
+        if S.Noclip then
+            local c=LP.Character
+            if c then for _,v in ipairs(c:GetChildren()) do if v:IsA("BasePart") and v.CanCollide then v.CanCollide=false end end end
+        end
+    end
+end)
+
+task.spawn(function()
+    while task.wait(2) do
+        if S.AntiTrap then
+            for _,v in ipairs(WS:GetDescendants()) do
+                if v:IsA("BasePart") and (v.Name:lower():find("trap") or v.Name:lower():find("spike")) then
+                    v.CanTouch=false; v.CanCollide=false
+                end
+            end
+        end
+    end
+end)
+
+-- Refresh zones + remotes setiap 30s
+task.spawn(function()
+    while task.wait(30) do
+        pcall(detectZones)
+        pcall(scanRemotes)
+    end
+end)
+
+-- ============================================================
+-- 17. UI HOOKUP
+-- ============================================================
+addLabel(tabs.farm.page,"Status: Stealth "..(getrawmetatable and "ON" or "OFF"),T.ok)
+addLabel(tabs.farm.page,"Zones: "..#NetralZones.." | Remotes: "..#RemoteCache.steal,T.sub)
+
+addToggle(tabs.farm.page,"Auto Steal (Fly Integrated)",false,function(v) S.AutoSteal=v end)
+addToggle(tabs.farm.page,"Safe Route (Netral Zone)",true,function(v) S.SafeRoute=v end)
+addToggle(tabs.farm.page,"Auto Transport",false,function(v) S.AutoTransport=v end)
+addToggle(tabs.farm.page,"Silent Steal",false,function(v) S.SilentSteal=v end)
+addSlider(tabs.farm.page,"Max Distance (studs)",100,3000,800,function(v) S.MaxDistance=v end)
+addBtn(tabs.farm.page,"Rescan Remotes + Zones",function()
+    pcall(scanRemotes)
+    pcall(detectZones)
+    local n=#RemoteCache.steal
+    pcall(function() SG:SetCore("SendNotification",{Title="JOY",Text="Steal remotes: "..n, Duration=2}) end)
+end,T.accent2)
+
+addToggle(tabs.visual.page,"ESP Box",false,function(v) S.ESPBox=v end)
+addToggle(tabs.visual.page,"ESP Name",false,function(v) S.ESPName=v end)
+addToggle(tabs.visual.page,"ESP Rarity",false,function(v) S.ESPRarity=v end)
+
+addToggle(tabs.event.page,"Auto Hatch",false,function(v) S.AutoHatch=v end)
+addToggle(tabs.event.page,"Auto Fusion",false,function(v) S.AutoFusion=v end)
+addToggle(tabs.event.page,"Auto Drones",false,function(v) S.AutoDrones=v end)
+addToggle(tabs.event.page,"Auto Samples",false,function(v) S.AutoSamples=v end)
+addToggle(tabs.event.page,"Auto Vault",false,function(v) S.AutoVault=v end)
+addToggle(tabs.event.page,"Auto Sell Low Rarity",false,function(v) S.AutoSell=v end)
+
+addToggle(tabs.misc.page,"Godmode",false,function(v) S.GodMode=v end)
+addToggle(tabs.misc.page,"Anti Trap",false,function(v) S.AntiTrap=v end)
+addToggle(tabs.misc.page,"Noclip",false,function(v) S.Noclip=v end)
+addToggle(tabs.misc.page,"Manual Fly (opsional)",false,function(v) S.ManualFly=v end)
+addSlider(tabs.misc.page,"WalkSpeed",16,300,60,function(v)
+    S.Walk=v
     local h=LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
     if h then h.WalkSpeed=v end
 end)
-addSlider(tabs.misc.page, "JumpPower", 50, 400, 120, function(v)
-    State.JumpPower=v
+addSlider(tabs.misc.page,"JumpPower",50,400,120,function(v)
+    S.Jump=v
     local h=LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
     if h then h.UseJumpPower=true; h.JumpPower=v end
 end)
 
-addToggle(tabs.safety.page, "Auto Server Hop", false, function(v) State.AutoHop=v end)
-addSlider(tabs.safety.page, "Max Player", 1, 30, 3, function(v) State.HopMaxPlayers=v end)
-addButton(tabs.safety.page, "Cari Server Sepi (PENCET)", function()
-    local req = (syn and syn.request) or (http and http.request) or http_request or request
-    if not req then return end
+addToggle(tabs.safety.page,"Anti Kick [LOCK]",true,function() end)
+addToggle(tabs.safety.page,"Anti Detect [LOCK]",true,function() end)
+addToggle(tabs.safety.page,"Anti AFK [LOCK]",true,function() end)
+addToggle(tabs.safety.page,"Auto Hop",false,function(v) S.AutoHop=v end)
+addSlider(tabs.safety.page,"Max Player",1,30,3,function(v) S.MaxP=v end)
+addBtn(tabs.safety.page,"Cari Server Sepi",function()
+    local rq=(syn and syn.request) or (http and http.request) or http_request or request
+    if not rq then return end
     pcall(function()
-        local res = req({Url="https://games.roblox.com/v1/games/"..game.PlaceId.."/servers/Public?sortOrder=Asc&limit=100"})
-        local data = HttpService:JSONDecode(res.Body)
-        for _, srv in ipairs(data.data) do
-            if srv.playing <= State.HopMaxPlayers and srv.id ~= game.JobId then
-                getgenv().SAE_AllowHop = true
-                TeleportService:TeleportToPlaceInstance(game.PlaceId, srv.id, LP)
+        local r=rq({Url="https://games.roblox.com/v1/games/"..game.PlaceId.."/servers/Public?sortOrder=Asc&limit=100"})
+        local d=HS:JSONDecode(r.Body)
+        for _,s in ipairs(d.data) do
+            if s.playing<=S.MaxP and s.id~=game.JobId then
+                getgenv().JOY_AllowHop=true
+                TPS:TeleportToPlaceInstance(game.PlaceId,s.id,LP)
                 return
             end
         end
     end)
 end)
 
-addButton(tabs.config.page, "Save Config", function()
-    pcall(function()
-        if writefile then writefile("SAE_Config.json", HttpService:JSONEncode(State)) end
-    end)
+addBtn(tabs.cfg.page,"Save Config",function()
+    pcall(function() if writefile then writefile("Joy17_Cfg.json",HS:JSONEncode(S)) end end)
 end)
-addButton(tabs.config.page, "Load Config", function()
+addBtn(tabs.cfg.page,"Load Config",function()
     pcall(function()
-        if readfile and isfile and isfile("SAE_Config.json") then
-            local d = HttpService:JSONDecode(readfile("SAE_Config.json"))
-            for k,v in pairs(d) do State[k]=v end
+        if readfile and isfile and isfile("Joy17_Cfg.json") then
+            local d=HS:JSONDecode(readfile("Joy17_Cfg.json"))
+            for k,v in pairs(d) do S[k]=v end
         end
     end)
 end)
+addBtn(tabs.cfg.page,"Force Rebuild GUI",function()
+    GUI:Destroy()
+    getgenv().JOY_GUI=nil
+end,T.bad)
 
 showTab("farm")
 
--- ============ KEY LOGIC ============
-local VALID_KEYS = {
-    ["1234"]=true, ["123"]=true, ["1"]=true,
-    ["joy"]=true, ["kaw"]=true, ["steal"]=true,
-    ["egg"]=true, ["vip"]=true, ["admin"]=true,
-}
-
-local verified = false
-local function doVerify()
-    if verified then return end
-    local input = tostring(KeyInput.Text or ""):gsub("%s+","")
-    if VALID_KEYS[input] then
-        verified = true
-        StatusLabel.Text = "Key valid! Loading..."
-        StatusLabel.TextColor3 = Th.success
-        task.wait(0.3)
-        KeyFrame.Visible = false
-        Main.Visible = true
-        pcall(function()
-            StarterGui:SetCore("SendNotification", {Title="Verified", Text="Welcome!", Duration=3})
-        end)
+-- ============================================================
+-- 18. KEY GATE
+-- ============================================================
+local KEYS={["joy"]=true,["Joy"]=true,["JOY"]=true,["1234"]=true,["1"]=true,["bazz"]=true,["steal"]=true,["egg"]=true}
+local vf=false
+local function doV()
+    if vf then return end
+    local i=tostring(KI.Text or ""):gsub("%s+","")
+    if KEYS[i] then
+        vf=true
+        KeyF.Visible=false
+        Main.Visible=true
+        pcall(function() SG:SetCore("SendNotification",{Title="JOY HUB v17",Text="Verified.",Duration=3}) end)
     else
-        StatusLabel.Text = "Key salah. Coba: 1234"
-        StatusLabel.TextColor3 = Th.danger
-        KeyInput.Text = ""
+        KI.Text=""
     end
 end
+bind(SB,doV)
+pcall(function() KI.FocusLost:Connect(function(e) if e then doV() end end) end)
+bind(CloseB,function() GUI:Destroy(); getgenv().JOY_GUI=nil end)
 
-bindClick(SubmitBtn, doVerify)
+-- ============================================================
+-- 19. TELEPORT GUARD
+-- ============================================================
 pcall(function()
-    KeyInput.FocusLost:Connect(function(e)
-        if e then doVerify() end
-    end)
-end)
-
--- ============ ANTI LAYER ============
-pcall(function()
-    local mt = getrawmetatable(game)
-    local old = mt.__namecall
-    setreadonly(mt, false)
-    mt.__namecall = newcclosure(function(self, ...)
-        local m = getnamecallmethod()
-        if m == "Kick" or m == "kick" or m == "KickSelf" then return end
-        return old(self, ...)
-    end)
-    setreadonly(mt, true)
-end)
-
-pcall(function()
-    LP.Idled:Connect(function()
-        pcall(function()
-            VirtualUser:CaptureController()
-            VirtualUser:ClickButton2(Vector2.new())
-        end)
-    end)
-end)
-
-pcall(function()
-    local oldTP = TeleportService.TeleportToPlaceInstance
-    getgenv().SAE_AllowHop = false
-    hookfunction(oldTP, function(self, ...)
-        if getgenv().SAE_AllowHop then
-            getgenv().SAE_AllowHop = false
-            return oldTP(self, ...)
-        end
+    local o=TPS.TeleportToPlaceInstance
+    getgenv().JOY_AllowHop=false
+    hookfunction(o,function(self,...)
+        if getgenv().JOY_AllowHop then getgenv().JOY_AllowHop=false; return o(self,...) end
         return
     end)
 end)
 
--- ============ FUNCTIONS ============
-local RARITY = {
-    Common={color=Color3.fromRGB(255,255,255)}, Uncommon={color=Color3.fromRGB(80,200,120)},
-    Rare={color=Color3.fromRGB(60,140,255)}, Epic={color=Color3.fromRGB(170,80,255)},
-    Legendary={color=Color3.fromRGB(255,180,40)}, Mythic={color=Color3.fromRGB(255,80,120)},
-    Cosmic={color=Color3.fromRGB(100,220,255)}, Secret={color=Color3.fromRGB(255,0,180)},
-    Eternal={color=Color3.fromRGB(255,240,140)}, Divine={color=Color3.fromRGB(255,255,255)},
-}
-
-local function isEgg(v)
-    return (v:IsA("BasePart") or v:IsA("Model")) and v.Name:lower():find("egg")
-end
-local function getRarity(e)
-    local r = e:GetAttribute("Rarity")
-    return RARITY[r] and r or "Common"
-end
-local function rarityColor(e)
-    return (RARITY[getRarity(e)] or RARITY.Common).color
-end
-
--- FLY
-local flyBV, flyBG
-local function startFly()
-    if flyBV then return end
-    local char = LP.Character; if not char then return end
-    local hrp = char:FindFirstChild("HumanoidRootPart"); if not hrp then return end
-    flyBV = Instance.new("BodyVelocity")
-    flyBV.MaxForce = Vector3.new(1e5,1e5,1e5)
-    flyBV.Velocity = Vector3.zero
-    flyBV.Parent = hrp
-    flyBG = Instance.new("BodyGyro")
-    flyBG.MaxTorque = Vector3.new(1e5,1e5,1e5)
-    flyBG.P = 1e4
-    flyBG.Parent = hrp
-end
-local function stopFly()
-    if flyBV then flyBV:Destroy(); flyBV=nil end
-    if flyBG then flyBG:Destroy(); flyBG=nil end
-end
-
--- STEAL LOOP
-task.spawn(function() while task.wait(0.4) do
-    if State.AutoSteal then
-        startFly()
-        for _,v in ipairs(Workspace:GetDescendants()) do
-            if isEgg(v) then
-                local target = v:IsA("BasePart") and v or v.PrimaryPart
-                if target and LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
-                    LP.Character.HumanoidRootPart.CFrame = target.CFrame * CFrame.new(0,2,0)
-                    for _,r in ipairs(ReplicatedStorage:GetDescendants()) do
-                        if r:IsA("RemoteEvent") and r.Name:lower():find("steal") then
-                            pcall(function() r:FireServer(v) end)
-                        end
-                    end
-                end
-                break
-            end
-        end
-    elseif not State.Fly then
-        if flyBV then stopFly() end
-    end
-end end)
-
--- FLY MANUAL
-task.spawn(function() while task.wait(0.1) do
-    if State.Fly then
-        local char = LP.Character
-        if char then
-            local hrp = char:FindFirstChild("HumanoidRootPart")
-            if hrp and not flyBV then startFly() end
-            if flyBV then
-                local dir = Vector3.zero
-                local cam = Workspace.CurrentCamera
-                if UserInputService:IsKeyDown(Enum.KeyCode.W) then dir += cam.CFrame.LookVector end
-                if UserInputService:IsKeyDown(Enum.KeyCode.S) then dir -= cam.CFrame.LookVector end
-                if UserInputService:IsKeyDown(Enum.KeyCode.A) then dir -= cam.CFrame.RightVector end
-                if UserInputService:IsKeyDown(Enum.KeyCode.D) then dir += cam.CFrame.RightVector end
-                if UserInputService:IsKeyDown(Enum.KeyCode.Space) then dir += Vector3.yAxis end
-                flyBV.Velocity = dir.Magnitude > 0 and dir.Unit * State.WalkSpeed or Vector3.zero
-                flyBG.CFrame = cam.CFrame
-            end
-        end
-    elseif flyBV then stopFly() end
-end end)
-
--- ESP
-local espFolder = new("Folder", {Name="ESP"}, ScreenGui)
-task.spawn(function() while task.wait(0.6) do
-    for _,v in pairs(espFolder:GetChildren()) do v:Destroy() end
-    if State.ESPBox or State.ESPName or State.ESPRarity then
-        for _,v in ipairs(Workspace:GetDescendants()) do
-            if isEgg(v) then
-                local target = v:IsA("BasePart") and v or v.PrimaryPart
-                if target then
-                    if State.ESPBox then
-                        local box = Instance.new("BoxHandleAdornment", espFolder)
-                        box.Adornee = target
-                        box.Size = target.Size + Vector3.new(0.5,0.5,0.5)
-                        box.Transparency = 0.5
-                        box.Color3 = rarityColor(v)
-                        box.AlwaysOnTop = true
-                    end
-                    if State.ESPName or State.ESPRarity then
-                        local bill = Instance.new("BillboardGui", espFolder)
-                        bill.Size = UDim2.fromOffset(180,50)
-                        bill.StudsOffsetWorldSpace = Vector3.new(0,3,0)
-                        bill.AlwaysOnTop = true
-                        bill.Adornee = target
-                        local lbl = Instance.new("TextLabel", bill)
-                        lbl.Size = UDim2.fromScale(1,1)
-                        lbl.BackgroundTransparency = 1
-                        lbl.TextColor3 = rarityColor(v)
-                        lbl.Font = Enum.Font.GothamBold
-                        lbl.TextSize = 12
-                        lbl.TextStrokeTransparency = 0.5
-                        local txt = ""
-                        if State.ESPName then txt = txt .. v.Name end
-                        if State.ESPRarity then txt = txt .. "\n" .. getRarity(v) end
-                        lbl.Text = txt
-                    end
-                end
-            end
-        end
-    end
-end end)
-
--- ANTI TRAP
-task.spawn(function() while task.wait(2) do
-    if State.AntiTrap then
-        for _,v in ipairs(Workspace:GetDescendants()) do
-            if v:IsA("BasePart") and (v.Name:lower():find("trap") or v.Name:lower():find("spike")) then
-                v.CanTouch = false
-                v.CanCollide = false
-            end
-        end
-    end
-end end)
-
--- GODMODE
-task.spawn(function() while task.wait(1) do
-    if State.GodMode then
-        local char = LP.Character
-        if char then
-            local h = char:FindFirstChildOfClass("Humanoid")
-            if h then h.MaxHealth = math.huge; h.Health = math.huge end
-        end
-    end
-end end)
-
--- NOCLIP
-task.spawn(function() while task.wait(0.15) do
-    if State.Noclip then
-        local char = LP.Character
-        if char then
-            for _,v in ipairs(char:GetChildren()) do
-                if v:IsA("BasePart") and v.CanCollide then v.CanCollide = false end
-            end
-        end
-    end
-end end)
-
--- AUTO HATCH
-task.spawn(function() while task.wait(2) do
-    if State.AutoHatch then
-        for _,v in ipairs(ReplicatedStorage:GetDescendants()) do
-            if v:IsA("RemoteEvent") and v.Name:lower():find("hatch") then
-                pcall(function() v:FireServer() end)
-            end
-        end
-    end
-end end)
-
--- AUTO FUSION
-task.spawn(function() while task.wait(5) do
-    if State.AutoFusion then
-        for _,v in ipairs(ReplicatedStorage:GetDescendants()) do
-            if v:IsA("RemoteEvent") and v.Name:lower():find("fusion") then
-                pcall(function() v:FireServer() end)
-            end
-        end
-    end
-end end)
-
--- AUTO HUNT DRONES
-task.spawn(function() while task.wait(2) do
-    if State.AutoHuntDrones then
-        for _,v in ipairs(Workspace:GetDescendants()) do
-            if v:IsA("Model") and (v.Name:lower():find("drone") or v.Name:lower():find("scramble")) then
-                local hrp = v:FindFirstChild("HumanoidRootPart") or v.PrimaryPart
-                if hrp and LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
-                    LP.Character.HumanoidRootPart.CFrame = hrp.CFrame * CFrame.new(0,2,0)
-                end
-            end
-        end
-    end
-end end)
-
--- AUTO VAULT
-task.spawn(function() while task.wait(3) do
-    if State.AutoVault then
-        for _,v in ipairs(Workspace:GetDescendants()) do
-            if v:IsA("BasePart") and (v.Name:lower():find("vault") or v.Name:lower():find("component")) then
-                if LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
-                    LP.Character.HumanoidRootPart.CFrame = v.CFrame * CFrame.new(0,2,0)
-                end
-            end
-        end
-    end
-end end)
-
--- AUTO TRANSPORT
-task.spawn(function() while task.wait(0.8) do
-    if State.AutoSteal and State.AutoTransport then
-        local char = LP.Character
-        if char and char:FindFirstChild("HumanoidRootPart") then
-            local carrying = false
-            for _,v in ipairs(char:GetChildren()) do
-                if v.Name:lower():find("egg") then carrying = true end
-            end
-            if carrying then
-                for _,v in ipairs(Workspace:GetDescendants()) do
-                    if v:IsA("BasePart") and (v.Name:lower():find("base") or v.Name:lower():find("deposit")) then
-                        char.HumanoidRootPart.CFrame = v.CFrame * CFrame.new(0,3,0)
-                        break
-                    end
-                end
-            end
-        end
-    end
-end end)
-
-print("[SAE] Mobile Work v14 loaded. Key: 1234")
-pcall(function()
-    StarterGui:SetCore("SendNotification", {Title="SAE", Text="Loaded. Key: 1234", Duration=4})
-end)
+print("[JOY v17] Loaded. Key: joy")
+pcall(function() SG:SetCore("SendNotification",{Title="JOY HUB v17",Text="Ready. Key: joy",Duration=4}) end)
